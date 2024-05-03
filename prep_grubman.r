@@ -42,7 +42,7 @@ had.data.f <- had.data[!(rownames(had.data) %in% genesPMI), ]
 
 ############## CREATE SEURAT OBJECT ############## 
 # min.cells = 3 --> Sara's and Manual recomend it // min.features = 200 --> Manual recomend it
-Grub <- CreateSeuratObject(counts = had.data.f, project = "Grubman_had", min.cells = goodcells_min, min.features = features_min)
+Grub <- CreateSeuratObject(counts = had.data.f, project = "Grub_ADSC_prjct", min.cells = goodcells_min, min.features = features_min)
 
 ############## EDIT METADATA ############## 
 # FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
