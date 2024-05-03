@@ -9,3 +9,5 @@ library(plotly) #Generate graphs
 library(magrittr) #Chaining commands with %>%
 library(clustree)
 library(future)
+library(cowplot)
+library(patchwork)
