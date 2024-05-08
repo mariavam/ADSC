@@ -64,7 +64,7 @@ Otero <- CreateSeuratObject(counts = otero.data.f, project = "Ot_ADSC_prjct", mi
 ############## EDIT METADATA ############## 
 # FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-Otero[[]] %>%
+Otero[[]] %<>%
   rownames_to_column("cell") %>%
   as_tibble %>%
   separate_wider_delim(orig.ident, delim = ".",
@@ -91,6 +91,6 @@ Otero[[]] %>%
   left_join(otero.info, by="SampleID") %>%
   as.data.frame %>%
   column_to_rownames("cell") %>%
-  mutate(across(where(is.character), as.factor)) -> Otero
+  mutate(across(where(is.character), as.factor))
 
 saveRDS(Otero, paste0(output_path,"seurat_rawdata.rds"))

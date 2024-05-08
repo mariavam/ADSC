@@ -44,7 +44,7 @@ Alsema <- CreateSeuratObject(counts = alsema.data.f, project = "Als_ADSC_prjct",
 ############## EDIT METADATA ############## 
 # FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-Alsema[[]] %>%
+Alsema[[]] %<>%
   rownames_to_column("cell") %>%
   as_tibble %>%
   separate_wider_delim(orig.ident, delim = ".",
@@ -65,6 +65,6 @@ Alsema[[]] %>%
   left_join(alsema.info, by="SampleID") %>%
   as.data.frame %>%
   column_to_rownames("cell") %>%
-  mutate(across(where(is.character), as.factor))->Alsema
+  mutate(across(where(is.character), as.factor))
 
 saveRDS(Alsema, paste0(output_path,"seurat_rawdata.rds"))
