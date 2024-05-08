@@ -1,39 +1,24 @@
-#!/bin/bash
 
-script_path='/CEPH/users/mvarea/SingCell_analysis/Code'
-output_path='/CEPH/users/mvarea/SingCell_analysis/Output/Leng'
+#For each dataset is available: rawdata directory, parameters.r, rds objects
 
-
-#PARAMETERS  --> $FILE_PATH/parameters.r
-
-#LIBRARIES --> $FILE_PATH/libraries.r
-
-#FUNCTIONS --> $FILE_PATH/functions.r
-
+script_path='/CEPH/users/mvarea/SingCell_analysis/script'
+output_path='/CEPH/users/mvarea/SingCell_analysis/data'
+dss=(grubman 
+leng
+otero
+alsema 
+mathys)
 
 ########################
 #DOWNLOAD DATA FROM GEO#
 ########################
+#prefetch ----
+#fastq-dump --split-files ----
+#cellranger counts ...... ----
 
-# Download Raw Data from GEO platform. The SRA numbers are save with the
-# metadata information of each study in Data_information.csv
-
-chmod +x $script_path/download.sh #change permissions for execution
-
-$script_path/download.sh
-
-
-##################################
-#CREATION INITIAL SEURAT OBJECTS#
-##################################
-
-# In this step, I'm going to create a seurat object from each dataset
-# separatedly. Here Im going to edit them with the properly data. 
-
-# Common metadata information: orig.ident / study / group / replicate / sex /
-# age / region /
-# The metadata of each study is saved in Data_information.csv, as well as
-# initial comments in each R script
+########################
+#CREATION SEURAT OBJECT#
+########################
 
 Rscript -e "$script_path/prep_grubman.r"
 
@@ -45,12 +30,26 @@ Rscript -e "$script_path/prep_alsema.r"
 
 Rscript -e "$script_path/prep_mathys.r"
 
+########################
+#QC + FILTERING OF DATA#
 
-#####################
-#PREPROCESSING DATA#
-#####################
+#NORMALIZATION#
+
+#PCA#
+########################
+for DS in dss
+do
+	cd data/DS
+	Rscript -e "$script_path/filter.r"
+	Rscript -e "$script_path/normalize.r"
+	Rscript -e "$script_path/PCA.r"
+done
 
 
-###############################
-#PROCESSING ALL DATA TOGUETHER#
-###############################
+#############
+#INTEGRATION#
+#############
+cd '$output_path'
+Rscript -e "$script_path/
+
+
