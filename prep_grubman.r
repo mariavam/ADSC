@@ -4,26 +4,26 @@
 
 #FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-script_path='/CEPH/users/mvarea/SingCell_analysis/Code/'
-output_path='/CEPH/users/mvarea/SingCell_analysis/Output/'
+script_path='/CEPH/users/mvarea/SingCell_analysis/scripts/'
+output_path='/CEPH/users/mvarea/SingCell_analysis/data/grubman/'
 
 source(paste0(script_path,'libraries.r'))
-source(paste0(script_path,'parameters.r'))
+source(paste0(output_path,'parameters.r'))
 #source(paste0(script_path,'functions.r'))
 
 ###############
 #CODE#
 ###############
-if (file.exists(paste0(output_path,"prep_grubman.rds"))) {
+if (file.exists(paste0(output_path,"seurat_rawdata.rds"))) {
   stop("The file already exists.")
 }
 
-had.data <- Read10X(data.dir=c(G.AD1="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/A1A2/",
-                               G.AD2="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/A3A4/",
-                               G.AD3="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/A5A6/",
-                               G.Ct1="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/C1C2/",
-                               G.Ct2="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/C3C4/",
-                               G.Ct3="/CEPH/users/mvarea/Grubman_analysis/Data/Grubman_dwn_data/C5C6/"))
+grub.data <- Read10X(data.dir=c(G.AD1="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/A1A2/",
+                                G.AD2="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/A3A4/",
+                                G.AD3="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/A5A6/",
+                                G.Ct1="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/C1C2/",
+                                G.Ct2="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/C3C4/",
+                                G.Ct3="/CEPH/users/mvarea/SingCell_analysis/data/grubman/raw_data/C5C6/"))
 
 
 Grub.info <- tibble(
@@ -38,16 +38,16 @@ read_csv("/CEPH/users/mvarea/SingCell_analysis/Data/genesPMI.csv",
          col_types = cols(pmi.genes = col_character())) %>%
   pull(pmi.genes)->genesPMI
 # Filtered data: 
-had.data.f <- had.data[!(rownames(had.data) %in% genesPMI), ]
+grub.data.f <- grub.data[!(rownames(grub.data) %in% genesPMI), ]
 
 ############## CREATE SEURAT OBJECT ############## 
 # min.cells = 3 --> Sara's and Manual recomend it // min.features = 200 --> Manual recomend it
-Grub <- CreateSeuratObject(counts = had.data.f, project = "Grub_ADSC_prjct", min.cells = goodcells_min, min.features = features_min)
+Grub <- CreateSeuratObject(counts = grub.data.f, project = "Grub_ADSC_prjct", min.cells = goodcells_min, min.features = features_min)
 
 ############## EDIT METADATA ############## 
 # FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-Grub[[]] %<>%
+Grub[[]] %>%
   rownames_to_column("cell") %>%
   as_tibble %>%
   separate_wider_delim(orig.ident, delim = ".",
@@ -68,11 +68,11 @@ Grub[[]] %<>%
   left_join(Grub.info %>%
               separate_wider_delim(Case,".",names = c("Sample","Replicate")) %>%
               group_by(Sample) %>%
-              summarise(across(Age:PMI, mean)) %>%
-              rename(orig.ident=Sample) %>%
-              mutate(across(orig.ident, \(x) paste0("G.", x)))) %>%
+              summarise(across(Age:PMI, mean), .groups = "drop") %>%
+              (dplyr::rename)(orig.ident=Sample) %>%
+              mutate(orig.ident = paste0("G.", orig.ident))) %>%
   as.data.frame %>%
   column_to_rownames("cell") %>%
-  mutate(across(where(is.character), as.factor))
+  mutate(across(where(is.character), as.factor)) -> Grub
 
-saveRDS(Grub, paste0(output_path,"prep_grubman.rds"))
+saveRDS(Grub, paste0(output_path,"seurat_rawdata.rds"))
