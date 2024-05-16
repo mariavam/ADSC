@@ -33,3 +33,7 @@ Scripts recopilated in [execution.sh](https://github.com/mariavam/ADSC/blob/e813
 For their execution, all of them reference the follow documents:
   + [libraries.sh]() contain all libraries used
   + [parameters.sh]() contain the parameters
+
+## Session info
+R version 4.3.3 (into account --> R.studio version 4.2.1)
+
