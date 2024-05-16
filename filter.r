@@ -16,6 +16,7 @@ if (file.exists("seurat_filtered.rds")) {
 Data <- readRDS("seurat_rawdata.rds")
 
 Data[["percent.mt"]] <- PercentageFeatureSet(Data, pattern = "^MT-")
+Data[["percent.ribop"]] <- PercentageFeatureSet(Data, pattern = "^RP[LS]")
 saveRDS(Data, "seurat_graphsfiltering.rds")
 
 ##############Filtering 1
