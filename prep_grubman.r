@@ -4,7 +4,7 @@
 
 #FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-script_path='/CEPH/users/mvarea/SingCell_analysis/scripts/'
+script_path='/CEPH/users/mvarea/SingCell_analysis/Code/'
 output_path='/CEPH/users/mvarea/SingCell_analysis/data/grubman/'
 
 source(paste0(script_path,'libraries.r'))
@@ -47,7 +47,7 @@ Grub <- CreateSeuratObject(counts = grub.data.f, project = "Grub_ADSC_prjct", mi
 ############## EDIT METADATA ############## 
 # FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
-Grub[[]] %>%
+Grub[[]] %<>%
   rownames_to_column("cell") %>%
   as_tibble %>%
   separate_wider_delim(orig.ident, delim = ".",
@@ -73,6 +73,6 @@ Grub[[]] %>%
               mutate(orig.ident = paste0("G.", orig.ident))) %>%
   as.data.frame %>%
   column_to_rownames("cell") %>%
-  mutate(across(where(is.character), as.factor)) -> Grub
+  mutate(across(where(is.character), as.factor))
 
 saveRDS(Grub, paste0(output_path,"seurat_rawdata.rds"))

@@ -5,7 +5,7 @@
 #FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
 script_path='/CEPH/users/mvarea/SingCell_analysis/Code/'
-output_path='/CEPH/users/mvarea/SingCell_analysis/Output/'
+output_path='/CEPH/users/mvarea/SingCell_analysis/data/alsema'
 
 source(paste0(script_path,'libraries.r'))
 source(paste0(script_path,'parameters.r'))
