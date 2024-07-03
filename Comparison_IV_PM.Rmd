@@ -1,0 +1,375 @@
+---
+title: "Comparison_IV_PM"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Comparison cluster
+```{r cluster expression}
+##############
+# Parameters #
+##############
+
+random.seed <- 19L
+n.cores <- 16L
+mem.gib <- 1e2
+alpha.markers.signif <- .05
+top.n.markers <- 15L
+regex.ribo.genes <- "^RP[L|S]"
+cluster.name <- "cluster_names"
+celltype.name <- "cluster_merged"
+sample.type <- "post-mortem"
+sample.type.marcel <- "in-vitro"
+cell_type2markers <-
+  list(`astrocytes` = c("ADGRV1", "ALDH1L1", "AQP4", "CLU", "GFAP", "GLUL",
+                        "S100B", "SLC1A2"),
+       `excitatory neurons`= c("CAMK2A", "CPNE4", "FSTL4", "NELL2", "RALYL",
+                               "SLC17A6", "SLC17A7"),
+       # Note: ABTB2B is not found an María suspects it might be outdated.
+       #       She removed it from her list.
+       `inhibitory neurons` = c("ABTB2B", "C8orf34", "GAD1", "GAD2", "GRIP1",
+                                "PTCHD4", "SLC6A1", "SYNPR", "TENM3", "TRPC4",
+                                "ZNF385D"),
+       `iPSc` = c("L1TD1", "NANOG", "POU5F1"),
+       `mature neurons` = c("DCX", "STMN2", "SYP"),
+       `microglia` = c("C1QB", "CXECR1", "HLA-DRA", "KCNQ3"),
+       `neuroepithelial cells` = c("DLK1", "GPC3"),
+       `NPCs` = c("ACAT2", "HES1", "LINC01551"),
+       `olidendrocytes` = c("CLDN11", "MBP", "MOG", "OLIG1", "OLIG2", "OLIG3",
+                            "SOX10"),
+       `OPCs` = c("CSPG4", "PDGFRA"))
+celltype2color <- c(astrocytes = "forestgreen",
+                    `excitatory neurons` = "mediumpurple3",
+                    `inhibitory neurons` = "steelblue2",
+                    iPSc = "red1",
+                    microglia = "gold1",
+                    `neuroepithelial cells` = "violetred2",
+                    NPCs = "chocolate2",
+                    oligodendrocytes = "indianred4",
+                    OPC = "goldenrod4")
+
+#############
+# Constants #
+#############
+
+bytes_per_gib <- (2L^10L)^3L
+
+
+#############
+# Libraries #
+#############
+
+library(magrittr)
+library(future)
+library(Seurat)
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+#########
+# Setup #
+#########
+Idents(Data) <- Data$cluster_names #change the Ident of each cell from 0,1,2 ... to exc_neu, astro, ....
+
+set.seed(random.seed)
+plan("multicore", workers = n.cores)
+options(future.globals.maxSize = mem.gib * bytes_per_gib)
+
+##############
+# Gene names #
+##############
+
+gene.names <- rownames(Data)
+genes.marcel <- readRDS("/CEPH/users/mschilling/projects/neuroscap/data/genes.for_maria.Rds")
+
+###############
+# All markers #
+###############
+
+markers.all <- Data %>% FindAllMarkers(only.pos = TRUE)
+
+
+#######################
+# Common gene markers #
+#######################
+
+markers.common <- markers.all %>%
+                  filter(gene %in% genes.marcel)
+
+
+#######################
+# Significant markers #
+#######################
+
+markers.signif <- markers.common %>%
+                  filter(p_val_adj < alpha.markers.signif)
+
+#########################
+# Non-ribosomal markers #
+#########################
+
+markers.signif.noribo <- markers.signif %>%
+                         filter(!grepl(regex.ribo.genes, gene))
+
+
+#############################
+# Top non-ribosomal markers #
+#############################
+'
+markers.noribo.top <- markers.signif.noribo %>%
+                      group_by(cluster) %>%
+                      slice_max(n = top.n.markers, order_by = avg_log2FC) %>%
+                      ungroup
+'
+
+# markers.noribo.top <- markers.signif.noribo %>%
+#                       group_by(cluster) %>%
+#                       slice_min(n = top.n.markers, order_by = p_val_adj) %>%
+#                       slice_max(n = top.n.markers, order_by = pct.1) %>%
+#                       ungroup
+
+###########################
+# Annotate with cell type #
+###########################
+
+markers.signif.noribo %<>%
+  left_join(distinct(Data[[]],
+                     across(all_of(c(cluster.name, celltype.name)))) %>%
+            dplyr::rename(cluster = all_of(cluster.name),
+                          cell_type = all_of(celltype.name))) %>%
+  relocate(cluster, cell_type, gene)
+
+
+#################
+# Merge markers #
+#################
+
+markers.marcel <- readRDS("/CEPH/users/mschilling/projects/neuroscap/data/markers.for_maria.Rds")
+
+markers.marcel %>%
+  group_by(cluster) %>%
+  summarize(n.genes = n(), .groups = "drop") %>%
+  pull(name = cluster)
+
+markers.merged <-
+  markers.signif.noribo %>%
+    mutate(sample_type = sample.type) %>%
+    bind_rows(mutate(markers.marcel, sample_type = sample.type.marcel)) %>%
+    unite(cluster_id, sample_type, cluster, remove = FALSE) %>%
+    mutate(across(where(is.character), as.factor)) %>%
+    relocate(cluster_id, sample_type, cluster)
+
+
+##################
+# Collapse genes #
+##################
+
+markers.merged %<>%
+  group_by(across(cluster_id:cell_type)) %>%
+  do(genes = .$gene) %>%
+  ungroup
+
+
+###########################
+# Score cells for markers #
+###########################
+
+marker.scores <-
+  Data %>%
+  AddModuleScore(pull(markers.merged, name = cluster_id),
+                 name = "cluster_score") %>%
+  `[[` %>%
+  select(all_of(cluster.name), starts_with("cluster_score")) %>%
+  setNames(c(cluster.name, as.character(markers.merged$cluster_id)))
+marker.scores.backup <- marker.scores
+
+#######################################
+# Summarize marker scores per cluster #
+#######################################
+
+marker.scores %<>%
+  group_by(across(all_of(cluster.name))) %>%
+  summarize(across(everything(), mean))
+
+
+##########################
+# Annotate marker scores #
+##########################
+
+marker.scores %<>%
+  dplyr::rename(cluster = all_of(cluster.name)) %>%
+  pivot_longer(-cluster, names_to = "cluster_id.scored",
+               values_to = "score") %>%
+  mutate(sample_type = factor(sample.type,
+                              levels = levels(markers.merged$sample_type))) %>%
+  left_join(select(markers.merged, -genes)) %>%
+  dplyr::rename(cluster_id.reference = cluster_id,
+         sample_type.reference = sample_type,
+         cluster.reference = cluster,
+         cell_type.reference = cell_type) %>%
+  relocate(cluster_id.reference, sample_type.reference, cluster.reference,
+           cell_type.reference) %>%
+  mutate(across(cluster_id.scored,
+                \(x) factor(x,
+                            levels = levels(markers.merged$cluster_id)))) %>%
+  left_join(select(markers.merged, -genes),
+            by = c(cluster_id.scored = "cluster_id")) %>%
+  dplyr::rename(sample_type.scored = sample_type,
+         cluster.scored = cluster,
+         cell_type.scored = cell_type) %>%
+  relocate(ends_with(".reference"), cluster_id.scored, sample_type.scored,
+           cluster.scored, cell_type.scored)
+
+
+# #######################
+# # Merge marker scores #
+# #######################
+# 
+# marker.scores.marcel <- readRDS("/CEPH/users/mschilling/projects/neuroscap/data/marker_scores.for_maria.Rds")
+# marker.scores %<>% bind_rows(marker.scores.marcel)
+# 
+# ###############
+# # Marker data #
+# ###############
+# 
+# marker.genes <-
+#   cell_type2markers %>%
+#   unlist %>%
+#   unname %>%
+#   intersect(gene.names) %>%
+#   intersect(genes.marcel)
+# 
+# marker.data <-
+#   Data %>%
+#   GetAssayData %>%
+#   `[`(marker.genes, )
+# 
+# #############
+# # Cell data #
+# #############
+# 
+# cell.data <-
+#   Data[[]] %>%
+#     rownames_to_column("cell_id") %>%
+#     as_tibble %>%
+#     select(cell_id, cluster = all_of(cluster.name),
+#            cell_type = all_of(celltype.name))
+# 
+# ###########
+# # Heatmap #
+# ###########
+# 
+# ## v1:
+# #ggplot(marker.scores, aes(x = cluster_id.reference, y = cluster_id.scored)) +
+# #  geom_tile(aes(fill = score)) +
+# #  theme_minimal()
+# 
+# library(ComplexHeatmap)
+# library(tibble) 
+# 
+# cell_type.mapping <- c(astro = "astrocytes",
+#                        exc_neurons = "excitatory neurons",
+#                        inh_neurons = "inhibitory neurons",
+#                        micro = "microglia",
+#                        oligo = "oligodendrocytes")
+# 
+# marker.scores %<>%
+#   mutate(across(starts_with("cell_type."),
+#                 \(x) ifelse(x %in% names(cell_type.mapping),
+#                             cell_type.mapping[as.character(x)],
+#                             as.character(x)) %>%
+#                       as.factor))
+# 
+#          
+# png("heatmap_comparison_marcel.png", width = 1000, height = 1000, res = 100)
+# marker.scores %>%
+#   select(starts_with("cluster_id."), score) %>%
+#   pivot_wider(names_from = cluster_id.scored, values_from = score) %>%
+#   as.data.frame %>%
+#   column_to_rownames("cluster_id.reference") %>%
+#   as.matrix %>%
+#   Heatmap(left_annotation =
+#             rowAnnotation(celltype = pull(distinct(marker.scores,
+#                                                   cluster_id.reference,
+#                                                   cell_type.reference)),
+#                           dataset = pull(distinct(marker.scores,
+#                                                   cluster_id.reference,
+#                                                   sample_type.reference))),
+#           top_annotation =
+#             columnAnnotation(celltype = pull(distinct(marker.scores,
+#                                                       cluster_id.scored,
+#                                                       cell_type.scored)),
+#                              dataset = pull(distinct(marker.scores,
+#                                                      cluster_id.scored,
+#                                                      sample_type.scored))))
+# dev.off()
+```
+
+COMPARISON BETWEEN IN VITRO AND POST MORTEM
+```{r}
+in_vitro <- readRDS("/CEPH/users/mschilling/projects/neuroscap/data/muscat.pseudobulk.tables.Rds")$for_maria
+
+cell_type.mapping <- c(astro = "astrocytes",
+                       exc_neurons = "excitatory neurons",
+                       inh_neurons = "inhibitory neurons",
+                       micro = "microglia",
+                       oligo = "oligodendrocytes")
+
+post_mortem <- out_tble %>%
+  mutate(across(cluster_id, 
+                \(x) ifelse(x %in% names(cell_type.mapping),
+                            cell_type.mapping[as.character(x)],
+                            as.character(x)) %>%
+                     as.factor))
+
+mixtable <- inner_join(post_mortem, in_vitro, by = c("gene","cluster_id")) %>%
+  select(gene, cluster_id, logFC.post_mortem = logFC.x, logFC.in_vitro = logFC.y, baseMean_post_mortem = baseMean.x, basemean_in_vitro = baseMean.y, p_adj_post_mortem = p_adj.x, p_adj_in_vitro = p_adj.y)
+
+counttable <-mixtable %>% mutate(quadrant = ((sign(logFC.post_mortem) == sign(logFC.in_vitro)) + 2 * (logFC.post_mortem < 0) - 1) %% 4 + 1) %>%
+  group_by(cluster_id, quadrant) %>%
+  summarise(n.genes = n(),
+            n.genes.signif = sum(pmin(p_adj_post_mortem, p_adj_in_vitro) < .05),
+            logFC.post_mortem = .95 * logFC.post_mortem[which.max(abs(logFC.post_mortem))],
+            logFC.in_vitro = .95 * logFC.in_vitro[which.max(abs(logFC.in_vitro))],
+            .groups = "drop")
+
+mixtable %>%
+  filter(pmax(p_adj_post_mortem, p_adj_in_vitro) < .05,
+         sign(logFC.post_mortem) == sign(logFC.in_vitro)) %>%
+  arrange(desc(pmin(baseMean_post_mortem, basemean_in_vitro))) -> diff_genes
+
+
+mixtable %>%
+  filter(!is.na(p_adj_in_vitro)) %>%
+  arrange(desc(pmin(p_adj_post_mortem, p_adj_in_vitro))) %>%
+  ggplot(aes(x = logFC.post_mortem, y = logFC.in_vitro)) +
+  geom_hline(yintercept = 0, color = "darkgrey", linetype = "dashed") +
+  geom_vline(xintercept = 0, color = "darkgrey", linetype = "dashed")  +
+  geom_text(aes(label = paste(n.genes.signif, n.genes, sep = "/")),
+                data = counttable) +
+  geom_point(aes(alpha = pmin(baseMean_post_mortem, basemean_in_vitro),
+                 fill = ifelse(pmin(p_adj_post_mortem, p_adj_in_vitro) < .05,
+                               as.character(cluster_id), "not signif."),
+                 color = ifelse(pmin(p_adj_post_mortem, p_adj_in_vitro) < .05,
+                               as.character(cluster_id), "not signif."),
+                 shape = ifelse(pmax(p_adj_post_mortem, p_adj_in_vitro) < .05,
+                                "both",
+                                ifelse(p_adj_post_mortem < .05, "post-mortem",
+                                       ifelse(p_adj_in_vitro < .05, "in-vitro",
+                                              "none"))))) +
+#  geom_label_repel(aes(label = gene), data = diff_genes, max.overlaps = 20,box.padding = 1) +
+  theme_minimal(base_size = 16) +
+  facet_wrap(~ cluster_id, nrow = 1) +
+  scale_fill_manual("celltype", values = c("astrocytes"="darkgreen", "excitatory neurons" = "purple", "inhibitory neurons" = "#2b8cbe", "not signif." = "grey")) +
+  scale_color_manual("celltype", values = c("astrocytes"="darkgreen", "excitatory neurons" = "purple", "inhibitory neurons" = "#2b8cbe", "not signif." = "grey")) +
+  scale_shape_manual("signif.", values = c("both" = 23, "post-mortem" = 25, "in-vitro" = 24, none = 21)) +
+  scale_alpha_continuous("expression") +
+  coord_fixed()
+
+```
+
