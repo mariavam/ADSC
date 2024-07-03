@@ -50,7 +50,7 @@ otero.info <- tibble(
 
 ############## FILTERING (REMOVE PMI GENES) ############## 
 # The nº of PMI genes are 100, because they are the 100 that has past the 5% cutoff (Zhu et al.)
-read_csv("/CEPH/users/mvarea/SingCell_analysis/Data/genesPMI.csv",
+read_csv("/CEPH/users/mvarea/SingCell_analysis/data/genesPMI.csv",
          col_names = c("pmi.genes"),
          col_types = cols(pmi.genes = col_character())) %>%
   pull(pmi.genes)->genesPMI

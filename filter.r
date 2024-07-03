@@ -1,5 +1,5 @@
 
-script_path='/CEPH/users/mvarea/SingCell_analysis/scripts/'
+script_path='/CEPH/users/mvarea/SingCell_analysis/Code/'
 output_path='/CEPH/users/mvarea/SingCell_analysis/data'
 
 source(paste0(script_path,'libraries.r'))

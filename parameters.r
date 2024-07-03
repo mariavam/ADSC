@@ -26,7 +26,7 @@ A_perc_limit=5
 nfeatures = 3000
 ncells = 5000
 seeduse = 12345
-
+int_ndims = 30 #number of dimensions used in integration
 
 VDL_dim = 5
 

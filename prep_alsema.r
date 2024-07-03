@@ -5,7 +5,7 @@
 #FINAL METADATA COLUMNS --> orig.ident / Study / Group / Replicate / Sex / Age / PMI / Region
 
 script_path='/CEPH/users/mvarea/SingCell_analysis/Code/'
-output_path='/CEPH/users/mvarea/SingCell_analysis/data/alsema'
+output_path='/CEPH/users/mvarea/SingCell_analysis/data/alsema/'
 
 source(paste0(script_path,'libraries.r'))
 source(paste0(script_path,'parameters.r'))
@@ -19,8 +19,8 @@ if (file.exists(paste0(output_path,"seurat_rawdata.rds"))) {
   stop("The file already exists.")
 }
 
-alsema.data <- Read10X(data.dir=c(A.AD1 = "/CEPH/users/mvarea/SingCell_analysis/data/alsema/AD1/outs/filtered_feature_bc_matrix/",
-                                  A.AD2 = "/CEPH/users/mvarea/SingCell_analysis/data/alsema/AD2/outs/filtered_feature_bc_matrix/"))
+alsema.data <- Read10X(data.dir=c(A.AD1 = "/CEPH/users/mvarea/SingCell_analysis/data/alsema/raw_data/AD1/outs/filtered_feature_bc_matrix/",
+                                  A.AD2 = "/CEPH/users/mvarea/SingCell_analysis/data/alsema/raw_data/AD2/outs/filtered_feature_bc_matrix/"))
 alsema.info <- tibble(
   SampleID = c("AD1","AD2"),
   Age = c(76,81),
@@ -30,7 +30,7 @@ alsema.info <- tibble(
 
 ############## FILTERING (REMOVE PMI GENES) ############## 
 # The nº of PMI genes are 100, because they are the 100 that has past the 5% cutoff (Zhu et al.)
-read_csv("/CEPH/users/mvarea/SingCell_analysis/Data/genesPMI.csv",
+read_csv("/CEPH/users/mvarea/SingCell_analysis/data/genesPMI.csv",
          col_names = c("pmi.genes"),
          col_types = cols(pmi.genes = col_character())) %>%
   pull(pmi.genes)->genesPMI
