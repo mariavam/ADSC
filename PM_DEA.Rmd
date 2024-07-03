@@ -1,0 +1,169 @@
+---
+title: "PM_DEA.Rmd"
+output: html_document
+---
+
+#Differential Expression Analysis with MUSCAT
+For this analysis, I used MUSCAT Wrapper. 
+
+##Libraries
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(limma)
+library(muscatWrapper)
+library(muscat)
+library(purrr)
+library(scater)
+library(loomR)
+library(Seurat)
+library(patchwork)
+library(DESeq2)
+```
+
+## MUSCAT pipeline.
+
+First, prepare the data
+
+```{r pressure, echo=FALSE}
+Data <- readRDS("seurat_clust_23_umap.rds")
+#Data<- RunUMAP(Data, dims = 1:umap_dims, seed.use = seeduse)
+Data_join <- JoinLayers(Data) #In case there is integration, there will be several layers, so we have to merge them for being able to apply Muscat
+
+Data[[]]$cluster_names <- cluster_names
+Data[[]]$Group <- make.names(Data[[]]$Group)
+```
+
+```{r}
+sce = Seurat::as.SingleCellExperiment(Data_join, assay = "RNA")
+
+new_metadata = SummarizedExperiment::colData(sce) 
+new_metadata = new_metadata %>% 
+  data.frame() %>%
+  mutate(across(seurat_clusters, \(cluster_number) paste0("cluster_", cluster_number)))
+rownames(new_metadata) = new_metadata$cell
+
+```
+
+```{r plot}
+PRD <- scater::plotReducedDim(sce, dimred = "UMAP", colour_by = "Region")
+PRD
+ggsave("pltRedDim.png", plot=PRD)
+```
+
+```{r}
+sce = SingleCellExperiment::SingleCellExperiment(list(counts=SingleCellExperiment::counts(sce), logcounts=SingleCellExperiment::logcounts(sce)),
+                                                 reducedDims = SingleCellExperiment::reducedDims(sce),
+                                                 colData=new_metadata,
+                                                 rowData=SingleCellExperiment::rowData(sce),
+                                                 metadata=sce@metadata
+)
+```
+
+```{r plot}
+PRD <- scater::plotReducedDim(sce, dimred = "UMAP", colour_by = "Group")
+PRD
+gsave("pltRedDim.png", plot=PRD)
+```
+
+```{r}
+table(SummarizedExperiment::colData(sce)$seurat_clusters, SummarizedExperiment::colData(sce)$orig.ident)
+
+table(SummarizedExperiment::colData(sce)$seurat_clusters, SummarizedExperiment::colData(sce)$Group)
+
+table(SummarizedExperiment::colData(sce)$seurat_clusters, SummarizedExperiment::colData(sce)$Region)
+
+table(SummarizedExperiment::colData(sce)$seurat_clusters, SummarizedExperiment::colData(sce)$cluster_merged)
+```
+
+```{r}
+sample_id = "orig.ident"
+group_id = "Group"
+celltype_id = "cluster_merged"
+min_cells = 10
+covariates = c("batch")
+
+abundance_output = get_abundance_info(sce, sample_id, group_id, celltype_id, min_cells, covariates = covariates)
+head(abundance_output$abundance_data)
+
+abundance_output$abund_plot_sample
+
+abundance_output$abund_plot_group
+
+abundance_output$abund_barplot
+```
+
+
+```{r}
+contrasts_oi = c("'AD-Ct'")
+
+contrast_tbl = tibble(contrast =
+                        c("AD-Ct","Ct-AD"),
+                      group = c("AD","Ct"))
+covariates = covariates
+muscat_output2 = muscat_analysis(
+  sce = sce,
+  celltype_id = celltype_id,
+  sample_id = sample_id,
+  group_id = group_id,
+  contrasts_oi = contrasts_oi,
+  contrast_tbl = contrast_tbl,
+  de_method_oi = "DESeq2",
+  covariates = NA,
+  min_cells = min_cells,
+  verbose = T)
+
+mus_out_corrected <- muscat_output$celltype_de$celltype_de$de_output_tidy %>% arrange(cluster_id) %>% arrange(p_adj.loc)
+```
+
+###Plot
+```{r}
+myclusters <- unique(Data[[]]$cluster_names)
+ 
+mus_out_cor <- c()
+plot_list_1 = list()
+plot_list_2 = list()
+library(scales)
+for (i in myclusters) {
+  mus_out_cor[[i]] <- subset(mus_out_corrected, cluster_id == i)
+  p1 = ggplot(data=mus_out_cor[[i]], aes(x=logFC, y=-log10(p_adj), col=diffexpressed, label = delabel)) + 
+    geom_point() + 
+    theme_minimal() + ggtitle(i) + geom_hline(yintercept=-log10(0.05), col="lightgrey", linetype = "dashed") + geom_text()
+  plot_list_1[[i]] <- p1
+  p2 = ggplot(data=mus_out_cor[[i]], aes(x=(baseMean), y=logFC, col=diffexpressed, label = delabel)) + geom_point() +
+    theme_minimal() + ggtitle(i) + scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                                                 labels = trans_format("log10", math_format(10^.x))) + geom_text()
+  plot_list_2[[i]] <- p2
+}
+ 
+print("Exporting volcanoplots and MAplots")
+pdf(file = "muscat_batchcorrected.pdf", width = 5, height = 5)
+for (i in myclusters) {
+  print(plot_list_1[[i]])  
+  print(plot_list_2[[i]])
+}
+dev.off()
+ 
+ 
+library(openxlsx)
+write.xlsx(setNames(as.list(lapply(mus_out_cor, data.frame)), names(mus_out_cor)), file="muscat_batchcorrected.xlsx")
+```
+
+MA PLOT
+```{r}
+out_tble %>%
+  arrange(desc(p_adj)) %>%
+  ggplot(aes(x = baseMean, y = logFC)) +
+  geom_point(aes(color = ifelse(p_adj < .05, as.character(cluster_id), "not signif."),
+                 fill = ifelse(p_adj < .05, as.character(cluster_id), "not signif."),
+                 shape = ifelse(p_adj >= .05, "not signif.",
+                                ifelse(logFC < 0, "downregulated", "upregulated")))) +
+  #geom_label_repel(aes(label = gene), data = diff_genes, max.overlaps = 20,box.padding = 1) +
+  theme_minimal(base_size = 16) +
+  facet_wrap(~ cluster_id, nrow = 3) +
+  scale_color_manual("celltype", values = c("microglia" = "yellow", "oligodendrocytes" = "red", "OPC" = "gold", "astrocytes" = "darkgreen", "excitatory neurons" = "purple", "inhibitory neurons" = "lightblue", "not signif." = "lightgrey")) +
+  scale_fill_manual("celltype", values = c("microglia" = "yellow", "oligodendrocytes" = "red", "OPC" = "gold", "astrocytes" = "darkgreen", "excitatory neurons" = "purple", "inhibitory neurons" = "lightblue", "not signif." = "lightgrey")) +
+  scale_shape_manual("diff. expr.", values = c("downregulated" = 25, "upregulated" = 24, "not signif." = 21)) +
+  ylab("log2 fold-change (AD vs. ctrl)") +
+  scale_x_log10("mean norm. expression")
+```
