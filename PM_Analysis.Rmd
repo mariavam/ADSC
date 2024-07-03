@@ -1,0 +1,444 @@
+---
+title: "PM_Analysis"
+output: html_document
+---
+
+#POST-MORTEM DATA ANALYSIS
+
+##Libraries
+```{r}
+source("../Code/libraries.r")
+source("../Code/parameters.r")
+```
+
+
+##Import data
+All this data has been prepared separatedly (see files pre_<study>.r) and then filtered (see filter.r).
+For the filtering, the parameters are chosen separatedly for each dataset. 
+
+```{r import data}
+Grub <- readRDS("grubman/seurat_filtered.rds")
+Leng <- readRDS("leng/seurat_filtered.rds")
+Otero <- readRDS("otero/seurat_filtered.rds")
+Alsema <- readRDS("alsema/seurat_filtered.rds")
+Mathys <- readRDS("mathys/seurat_filtered.rds")
+```
+
+## Merging the datasets
+
+```{r merging}
+Data <- merge(Mathys, y= c(Grub, Leng, Otero, Alsema), add.cell.ids=c("M","G","L","O","A"), merge.data=TRUE)
+saveRDS(Data, "seurat_merged.rds")
+```
+
+###Bar Plot
+```{r barplot}
+Data[[]]%>%
+  as_tibble() -> barplt_data
+barplt_data
+barplt_cells <- ggplot(data=barplt_data, aes(x= reorder(orig.ident, table(orig.ident)[orig.ident]), fill= Study, color=Group)) + 
+  geom_bar(stat = "count",position = position_dodge(), linewidth = 2) + 
+  theme(title = element_text(size = 30),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.text = element_text(size = 14),
+        legend.key.size = unit(1, "cm"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18)) +
+  scale_color_manual(values = c("AD"="DarkRed", "Ct"="Darkgreen", "Grubman"="coral1", "Leng"="gold3", "Otero"="blue", "Alsema"="chatreuse3", "Mathys"="pink")) +
+  labs(x = "Samples",
+       y = "Coverage")
+
+ggsave("barplot_cells.png", plot=barplt_cells, height = 10, width = 20)
+```
+
+
+## Normalization
+
+```{r pressure, echo=FALSE}
+Data <- NormalizeData(Data)
+Data[["RNA"]] <- split(Data[["RNA"]], f=Data$orig.ident)
+Data <- FindVariableFeatures(Data, nfeatures = 3000, verbose = FALSE)
+Data <- ScaleData(Data, vars.to.regres = c("nCount_RNA", "nFeature_RNA", "Sex", "Age", "percent.mt", "percent.ribop", "Replicate"))
+saveRDS(Data, "seurat_reg_normalized.rds")
+```
+
+## PCA reduction
+
+```{r}
+Data <- RunPCA(Data, verbose = F)
+saveRDS(Data, "seurat_pca.rds")
+```
+
+## UMAP reduction
+
+```{r}
+Data <- RunUMAP(Data, dims = 1:23, seed.use = seeduse)
+saveRDS(Data, "seurat_preint_umap.rds")
+```
+
+###Dimplot
+
+```{r}
+DP_umap_study <-DimPlot(Data, split.by = "Group", group.by = "Study", order = "Grubman", pt.size = 0.01, raster=FALSE) + 
+  FontSize(x.title = 6, y.title = 6, x.text = 4, y.text = 4) + 
+  theme(legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 13),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11)) +
+  scale_color_manual(values = c("Grubman"="coral1", "Leng"="gold3", "Otero"="blue", "Alserna"="chartreuse3", "Mathys"="pink")) +
+  coord_fixed()
+
+ggsave("UMAP_group_study", DP_umap_study)
+```
+
+
+##Integration
+
+```{r}
+Data <-IntegrateLayers(
+  object = Data, method = RPCAIntegration ,
+  orig = "pca", new.reduction = "integrated.rpca", 
+  dims = 1:umap_dims, k.anchor = 20, verbose = F)
+#umap_dims = 30
+saveRDS(Data, "seurat_integrated.rds")
+```
+
+##Clustering
+```{r Find Neighbors and Clusters}
+Data <- FindNeighbors(Data, dims = 1:umap_dims)
+Data <- FindClusters(Data, resolution = seq(from = 0.2,to = 1.2, by = 0.2), random.see= seeduse, verbose = FALSE)
+```
+
+###Clustree
+
+```{r clustree}
+Cltr <- clustree(Data)
+ggsave("clustree.png", plot = Cltr, height=20, width=15)
+```
+
+Re-do Clusters with resolution chosen with Clustree:
+
+```{r clustree}
+Data <- FindClusters(Data, resolution = resol, random.see= seeduse, verbose = FALSE) ##resol = result from Cltre
+```
+
+## UMAP reduction
+
+```{r}
+Data <- RunUMAP(Data, dims = 1:23, seed.use = seeduse, reduction = "integrated.rpca")
+saveRDS(Data, "seurat_postint_umap.rds")
+````
+
+###Dimplot
+
+```{r}
+#For comparing pre and post integration
+DP_umap_study <-DimPlot(Data, split.by = "Group", group.by = "Study", order = "Grubman", pt.size = 0.01, raster=FALSE) + 
+  FontSize(x.title = 6, y.title = 6, x.text = 4, y.text = 4) + 
+  theme(legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 13),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11)) +
+  scale_color_manual(values = c("Grubman"="coral1", "Leng"="gold3", "Otero"="blue", "Alserna"="chartreuse3", "Mathys"="pink")) +
+  coord_fixed()
+
+ggsave("UMAP_group_study_postint.png", DP_umap_study)
+
+#Clustering
+DP_umap <- DimPlot(Data, reduction = "umap", label = TRUE, label.size = 2, pt.size = 0.1, raster = FALSE, shuffle = TRUE) +
+  ggtitle("number of cells: 292958 - PCs: 23 - resolution: 0.4") +
+  NoLegend() + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) +
+  theme(legend.text = element_text(size = 6),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        title = element_text(size = 10))
+
+ggsave("UMAP_clusters.png", DP_umap)
+
+````
+
+```{r}
+DP_umap <-DimPlot(Data, group.by = "seurat_clusters", order = "0", pt.size = 0.1, raster=FALSE) + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) + 
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("F" = "grey60", "M" = "red"))
+
+```
+
+```{r}
+DP_umap_study <-DimPlot(Data_pre, split.by = "Study", group.by = "Study", order = "Grubman", pt.size = 0.01, raster=FALSE) + 
+  FontSize(x.title = 6, y.title = 6, x.text = 4, y.text = 4) + 
+  theme(legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 13),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 10),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 11)) +
+  scale_color_manual(values = c("Grubman"="coral1", "Leng"="gold3", "Otero"="blue", "Alserna"="chartreuse3", "Mathys"="pink")) +
+  coord_fixed()
+
+```
+
+```{r}
+DP_umap_groupA <- DimPlot(Data, group.by = "Group", order = "Ct", pt.size = 0.1, raster = FALSE, shuffle=TRUE) +
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) +
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("AD" = "grey60", "Ct" = "#2796af")) +
+  coord_fixed()
+
+DP_umap_groupC <- DimPlot(Data, group.by = "Group", order = "AD", pt.size = 0.1, raster = FALSE, shuffle=TRUE) +
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) +
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("AD" = "#9b1504", "Ct" = "grey60")) +
+  coord_fixed()
+DP_umap_group <- DP_umap_groupA + DP_umap_groupC
+```
+
+
+```{r}
+DP_umap_sexM <-DimPlot(Data, group.by = "Sex", order = "M", pt.size = 0.1, raster=FALSE, shuffle=TRUE) + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) + 
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("F" = "grey60", "M" = "red")) +
+  coord_fixed()
+
+DP_umap_sexF <-DimPlot(Data, group.by = "Sex", order = "F", pt.size = 0.1, raster=FALSE, shuffle=TRUE) + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) + 
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("F" = "blue", "M" = "grey60")) +
+  coord_fixed()
+DP_umap_sex <- DP_umap_sexM + DP_umap_sexF
+
+ggsave("umap_sex.png", plot = DP_umap_sex)
+```
+
+```{r}
+DP_umap_region <-DimPlot(Data, group.by = "Region", pt.size = 0.1, raster=FALSE, shuffle=TRUE) + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) + 
+  theme(legend.text = element_text(size = 10), legend.title = element_text(size = 10)) +
+  scale_color_manual(values = c("LPS" = "purple", "DPC"= "lightblue", "PC" = "blue", "EC" = "green", "SFG" = "yellow"))
+
+DP_umap_region <-DimPlot(Data, split.by = "Study", group.by = "Region", order = "Grubman", pt.size = 0.01, raster=FALSE, shuffle=TRUE) + 
+  FontSize(x.title = 6, y.title = 6, x.text = 4, y.text = 4) + 
+  theme(legend.text = element_text(size = 6), 
+        legend.title = element_text(size = 6),
+        axis.text = element_text(size = 3),
+        axis.title = element_text(size = 4),
+        plot.title = element_text(size = 10),
+        plot.subtitle = element_text(size = 8)) +
+  coord_fixed() +
+  scale_color_manual(values = c("LPS" = "purple", "DPC"= "lightblue", "PC" = "blue", "EC" = "green", "SFG" = "yellow"))
+
+```
+
+```{r}
+umap.data <- as_tibble( rownames_to_column(as.data.frame(Embeddings(Data, reduction <- "umap")), "cell")) %>% ##Embeddings (give the coordinates of each cell and that help them to classify into different umap reductions
+  #  select(cell, PC_1, PC_2) %>%
+  left_join(as_tibble(rownames_to_column(Data[[]], "cell")) %>%
+              select(cell, orig.ident, Sex, PMI, Group, Age, Region, Replicate, 
+                     nCount_RNA, nFeature_RNA)) %>% ##Here we select colnames fo the metadata
+  mutate(across(PMI, as.numeric),
+         across(Age, as.numeric),
+         Replicate = gsub("[^[:digit:]]", "", orig.ident))
+
+DP_umap_age <- umap.data %>%
+  ggplot(aes(umap_1, umap_2, color = Age)) %>%
+  + geom_point(size = .1) %>%
+  + theme_minimal() %>%
+  + scale_color_gradient(low = "lightblue", high = "darkblue")
+
+DP_umap_pmi <- umap.data %>%
+  ggplot(aes(umap_1, umap_2, color = PMI)) %>%
+  + geom_point(size = .1) %>%
+  + theme_minimal() %>%
+  + scale_color_gradient(low = "lightgreen", high = "darkgreen")
+
+DP_umap_ncount <- umap.data.30 %>%
+  ggplot(aes(umap_1, umap_2, color = nCount_RNA)) %>%
+  + geom_point(size = .1) %>%
+  + theme_minimal() %>%
+  + scale_color_gradient(low = "yellow", high = "red")
+
+DP_umap_nfeat <- umap.data.30 %>%
+  ggplot(aes(umap_1, umap_2, color = nFeature_RNA)) %>%
+  + geom_point(size = .1) %>%
+  + theme_minimal() %>%
+  + scale_color_gradient(low = "violet", high = "purple")
+````
+## Find Markers of Clusters
+```{r}
+Data_join <- JoinLayers(Data)
+
+Cltr.markers <- FindAllMarkers(Data_join)
+
+Cltr.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+```
+
+## Annotation
+```{r}
+exneu <- c("NELL2", "FSTL4", "CPNE4", "RALYL", "CAMK2A", "SLC17A7", "GRIN1", "SNAP25", "SYT1", "NRGN")
+inneu <- c("ZNF385D", "ABTB2B", "GAD1", "GAD2", "SYNPR", "PTCHD4", "C8orf34", "TRPC4", "GRIP1", "TENM3")
+ast <- c("ADGRV1", "RYR3", "SLC1A2", "GPC5", "GLIS3", "BMPR1B", "COL5A3", "FGFR3", "GFAP", "APOE")
+oli <- c("MOG", "UGT8", "LPAR1", "CDK18", "C10orf90", "PLD1", "CNTN2", "PXK", "COL4A5", "ST18")
+opc <- c("XYLT1", "LHFPL3", "LUZP2", "SEMA5A", "CA10", "PTPRZ1", "MMP16", "VCAN", "USP24", "PCDH15")
+mic <- c("NEAT1", "DOCK8", "CD74", "PTPRC", "CSF1R", "SRGAP2", "ATP8B4", "SRGAP2B", "ATP8B4", "SFMBT2", "P2RY12")
+grub_astro <- c( "AQP4", "SLC1A2", "ADGRV1")
+#CODE
+VlnPlt <- VlnPlot(Data, features = features, raster = FALSE, ncol = 5, pt.size = 0.1)
+ggsave("marker.vlnplt.png", plot = VlnPlt, height = 10, width = 40) # size for 10 features
+
+FeatPlt <- FeaturePlot(Data, features = features, raster = FALSE, ncol = 5)
+ggsave("marker.featplt.png", plot = FeatPlt, height = 15, width = 40) # size for 10 features
+```
+
+Now, new names with the cell-types are assigned to each dataset:
+
+```{r}
+Data[[]] %<>%
+  mutate(cluster_names = case_when(seurat_clusters == "0" ~ "Excit_Neu_1",
+                                   seurat_clusters == "1" ~ "Oligodendro_1",
+                                   seurat_clusters == "2" ~ "Excit_Neu_2", 
+                                   seurat_clusters == "3" ~ "Excit_Neu_3",
+                                   seurat_clusters == "4" ~ "Inhib_Neu_1",
+                                   seurat_clusters == "5" ~ "Astrocytes_1",
+                                   seurat_clusters == "6" ~ "Excit_Neu4",
+                                   seurat_clusters == "7" ~ "Inhib_Neu_2",
+                                   seurat_clusters == "8" ~ "Microglia_1", 
+                                   seurat_clusters == "9" ~ "Excit_Neu5", 
+                                   seurat_clusters == "10" ~ "OPC1",
+                                   seurat_clusters == "11" ~ "Oligodendro_2",
+                                   seurat_clusters == "12" ~ "Inhib_Neu_3",
+                                   seurat_clusters == "13" ~ "Excit_Neu6",
+                                   seurat_clusters == "14" ~ "Excit_Neu7",
+                                   seurat_clusters == "15" ~ "Excit_Neu8",
+                                   seurat_clusters == "16" ~ "Oligodendro_3",
+                                   seurat_clusters == "17" ~ "Excit_Neu9",
+                                   seurat_clusters == "18" ~ "Oligodendro_4",
+                                   seurat_clusters == "19" ~ "Excit_Neu10",
+                                   seurat_clusters == "20" ~ "Astrocytes_2",
+                                   seurat_clusters == "21" ~ "OPC2",
+                                   seurat_clusters == "22" ~ "Astrocytes_3"),
+         cluster_merged = case_when(seurat_clusters %in% c("0","2","3","6","9","13","14","15","17","19") ~ "excitatory_neurons",
+                                    seurat_clusters %in% c("4","7","12") ~ "inhibitory_neurons",
+                                    seurat_clusters %in% c("5","20","22") ~ "astrocytes",
+                                    seurat_clusters %in% c("1","11","16","18") ~ "oligodendrocytes",
+                                    seurat_clusters %in% c("10", "21") ~ "OPC",
+                                    seurat_clusters %in% c("8") ~ "microglia")
+saveRDS(Data, "seurat_clusternames.rds")
+```
+
+###DIMPLOT
+```{r}
+Cltr_umap <- Dimplot(Data, reduction = "umap", group.by = "cluster_names", label = TRUE, label.size = 2, pt.size = 0.1, raster = FALSE, shuffle = TRUE) +
+  NoLegend() + 
+  FontSize(x.title = 10, y.title = 10, x.text = 9, y.text = 9) +
+  theme(legend.text = element_text(size = 6),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        title = element_text(size = 10))
+
+plot.umap <- function(sobj, label = TRUE, label.box = TRUE, repel = TRUE,
+                      shuffle = TRUE, xlab = "UMAP 1", ylab = "UMAP 2",
+                      color.guide = !label, axes.arrows = TRUE,
+                      coord.fixed = axes.arrows, label.size = 8,
+                      base.size = 3 * label.size,
+                      axes.titles.in.corner = axes.arrows,
+                      axes.labels = !axes.arrows, axes.ticks = axes.labels,
+                      arrow = grid::arrow(length = unit(5, "mm")),
+                      plot.margin = .1, rel.arrow.length = 2 * plot.margin,
+                      arrow.size = 2,
+                      ...) {
+  umap <-
+    DimPlot(sobj, label = label, label.box = label.box, shuffle = shuffle,
+            label.size = label.size, repel = TRUE, ...) +
+    geom_label(aes(x = UMAP_1, y = UMAP_2,label = cluster_names, fill = cluster_names), 
+               show.legend = FALSE, label.size = label.size) +
+    xlab(xlab) +
+    ylab(ylab) +
+    theme_classic(base_size = base.size)
+  if(!color.guide) umap %<>% + guides(color = FALSE)
+  if(!axes.labels) umap %<>% + theme(axis.text = element_blank())
+  if(!axes.ticks) umap %<>% + theme(axis.ticks = element_blank())
+  if(axes.titles.in.corner)
+    umap %<>% + theme(axis.title.x = element_text(hjust = -.01, vjust = -.04),
+                      axis.title.y = element_text(hjust = -.01, vjust = 1.04))
+  if(axes.arrows) {
+    umap.vals <- Embeddings(sobj, "umap") %>%
+                 as_tibble %>%
+                 setNames(toupper(names(.)))
+    umap1.min <- pull(umap.vals, "UMAP_1") %>% min
+    umap2.min <- pull(umap.vals, "UMAP_2") %>% min
+    umap1.max <- pull(umap.vals, "UMAP_1") %>% max
+    umap2.max <- pull(umap.vals, "UMAP_2") %>% max
+    umap1.range <- umap1.max - umap1.min
+    umap2.range <- umap2.max - umap2.min
+    umap1.margin.lower <- -umap1.min * plot.margin
+    umap2.margin.lower <- -umap2.min * plot.margin
+    umap1.arrow.start <- umap1.min - umap1.margin.lower
+    umap2.arrow.start <- umap2.min - umap2.margin.lower
+    umap1.arrow.length <- umap1.range * rel.arrow.length
+    umap2.arrow.length <- umap2.range * rel.arrow.length
+    umap1.arrow.end <- umap1.arrow.start + umap1.arrow.length
+    umap2.arrow.end <- umap2.arrow.start + umap2.arrow.length
+    if(coord.fixed) umap %<>% + coord_fixed(xlim = c(umap1.min, umap1.max),
+                                            ylim = c(umap2.min, umap2.max),
+                                            clip = "off")
+    else umap %<>% + coord_cartesian(xlim = c(umap1.min, umap1.max),
+                                     ylim = c(umap2.min, umap2.max),
+                                     clip = "off")
+    umap %<>%
+      + theme(axis.line = element_blank()) %>%
+      + annotate(x = umap1.arrow.start, y = umap2.arrow.start,
+                 xend = umap1.arrow.end, yend = umap2.arrow.start,
+                 geom = "segment", linewidth = arrow.size,
+                 arrow = arrow) %>%
+      + annotate(x = umap1.arrow.start, y = umap2.arrow.start,
+                 xend = umap1.arrow.start, yend = umap2.arrow.end,
+                 geom = "segment", linewidth = arrow.size,
+                 arrow = arrow)
+  } else {
+    if(coord.fixed) umap %<>% + coord_fixed()
+  }
+  umap
+}
+
+Cltr_umap <- plot.umap(Data, group.by = "cluster_names", label.size = 4,
+                       base.size = 12, arrow.size = 1, raster = FALSE) +
+             ggtitle(paste0(ncells_umap, " cells - ", umap_dims, " PCs - ", resol_value, " resolution")) +
+             scale_colour_manual(values = c("Astrocytes_1" = "#31a354", "Astrocytes_2" = "#a1d99b", "Astrocytes_3" = "#e5f5e0",
+                                            "Inhib_Neu_1" = "#2b8cbe", "Inhib_Neu_2" = "#a6bddb", "Inhib_Neu_3" = "#ece7f2",
+                                            "Microglia_1" = "#FFFF32",
+                                            "Oligodendro_1" = "#cb181d", "Oligodendro_2" = "#fb6a4a", "Oligodendro_3" = "#fcae91", "Oligodendro_4" = "#fee5d9",
+                                            "Excit_Neu_1" = "#4A148C", "Excit_Neu_2" = "#6A1B9A", "Excit_Neu_3" = "#7B1FA2", "Excit_Neu4" = "#8E24AA" ,
+                                            "Excit_Neu5" = "#9C27B0" , "Excit_Neu6" = "#AB47BC", "Excit_Neu7" = "#BA68C8", "Excit_Neu8" = "#CE93D8" ,
+                                            "Excit_Neu9" = "#E1BEE7", "Excit_Neu10" = "#F3E5F5",
+                                            "OPC1" = "#AD9024", "OPC2" = "#CEB152")) +
+             scale_fill_manual(values = c("Astrocytes_1" = "#31a354", "Astrocytes_2" = "#a1d99b", "Astrocytes_3" = "#e5f5e0",
+                                          "Inhib_Neu_1" = "#2b8cbe", "Inhib_Neu_2" = "#a6bddb", "Inhib_Neu_3" = "#ece7f2",
+                                          "Microglia_1" = "#FFFF32",
+                                          "Oligodendro_1" = "#cb181d", "Oligodendro_2" = "#fb6a4a", "Oligodendro_3" = "#fcae91", "Oligodendro_4" = "#fee5d9",
+                                          "Excit_Neu_1" = "#4A148C", "Excit_Neu_2" = "#6A1B9A", "Excit_Neu_3" = "#7B1FA2", "Excit_Neu4" = "#8E24AA" ,
+                                          "Excit_Neu5" = "#9C27B0" , "Excit_Neu6" = "#AB47BC", "Excit_Neu7" = "#BA68C8", "Excit_Neu8" = "#CE93D8" ,
+                                          "Excit_Neu9" = "#E1BEE7", "Excit_Neu10" = "#F3E5F5",
+                                          "OPC1" = "#AD9024", "OPC2" = "#CEB152")) +
+             theme(plot.title = element_text(hjust = 0))
+
+ggsave("umap_celltype_cltr.png", Cltr_umap)
+```
+
+##REFERENCES
+This code has been obtained from the original tutorial of Seurat v.5 (https://satijalab.org/seurat/articles/pbmc3k_tutorial).
+In case the original data is too high and need too resouces, sketching can be apply (folow the tutorial https://satijalab.org/seurat/articles/seurat5_sketch_analysis)
+
